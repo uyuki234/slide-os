@@ -135,6 +135,49 @@ int wm_in_title(Window *w, int px, int py)
            py < w->y + TITLE_H;
 }
 
+/* 端の8pxバンド(+外側6pxのおまけ)に触れたらリサイズ。
+ * 手前の窓から調べ、手前の窓の本体に当たったら奥の窓の端は隠れている扱い */
+int wm_resize_hit(int px, int py, Window **out)
+{
+    for (int i = nwin - 1; i >= 0; i--) {
+        Window *w = zorder[i];
+        int pw = win_pw(w), ph = win_ph(w);
+        if (px < w->x || px >= w->x + pw + 6 || py < w->y ||
+            py >= w->y + ph + 6)
+            continue;
+        int mode = 0;
+        if (px >= w->x + pw - 14 && py >= w->y + ph - 14)
+            mode = RZ_BOTH; /* 角は広めに取って掴みやすく */
+        else if (px >= w->x + pw - 8)
+            mode = RZ_RIGHT;
+        else if (py >= w->y + ph - 8)
+            mode = RZ_BOTTOM;
+        if (mode) {
+            *out = w;
+            return mode;
+        }
+        if (px < w->x + pw && py < w->y + ph)
+            return RZ_NONE; /* 窓の本体に当たった: リサイズではない */
+    }
+    return RZ_NONE;
+}
+
+/* セル単位のリサイズ。中身のcellはストライド固定(WIN_COLS_MAX)なので、
+ * 縮めても文字は消えず「隠れる」だけ。広げれば戻ってくる。
+ * 行の折り返し直し(リフロー)はしない — 本物の端末もリサイズ時の
+ * 再描画はアプリに任せる(SIGWINCHの世界)ので、手抜きではなく伝統 */
+void win_resize(Window *w, int cols, int rows)
+{
+    if (cols < WIN_COLS_MIN) cols = WIN_COLS_MIN;
+    if (cols > WIN_COLS_MAX) cols = WIN_COLS_MAX;
+    if (rows < WIN_ROWS_MIN) rows = WIN_ROWS_MIN;
+    if (rows > WIN_ROWS_MAX) rows = WIN_ROWS_MAX;
+    w->cols = cols;
+    w->rows = rows;
+    if (w->ccol >= cols) w->ccol = cols - 1; /* カーソルを窓内に連れ戻す */
+    if (w->crow >= rows) w->crow = rows - 1;
+}
+
 void wm_set_status(const char *s)
 {
     int i = 0;
@@ -201,6 +244,12 @@ static void draw_window(Window *w, int focused)
                 draw_char(w->x + BORDER + c * CELL_W,
                           w->y + TITLE_H + r * CELL_H, ch, pal[(v >> 8) & 0x0F]);
         }
+
+    /* 右下角のリサイズグリップ(斜線3本)。「ここを掴めます」の目印 */
+    uint32_t gc = focused ? 0xF0A582 : 0x5A5A64;
+    for (int k = 4; k <= 12; k += 4)
+        for (int t = 0; t <= k; t++)
+            px(w->x + pw - 2 - t, w->y + ph - 2 - (k - t), gc);
 }
 
 /* --- タスクバー: 下端のバー。窓ラベル(クリック可)+時計 --- */

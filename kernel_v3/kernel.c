@@ -168,7 +168,8 @@ static void home_draw(void)
                 "  arrows : move window\n\n");
     w->color = 0x07;
     win_puts(w, "  mouse : click to focus,\n"
-                "  drag title bar to move");
+                "  drag title bar to move,\n"
+                "  drag edge/corner to resize");
     w->color = 0x0F;
 }
 static void home_on_key(App *a, int k)
@@ -208,22 +209,51 @@ static void splash_progress(uint32_t until_tick)
     }
 }
 
-/* ===== マウスカーソル: 定番の矢印。合成の一番最後に直接描く ===== */
-static const char *cursor_img[19] = {
+/* ===== マウスカーソル: 矢印+リサイズ用3種。合成の一番最後に直接描く ===== */
+static const char *cur_arrow[19] = {
     "X           ", "XX          ", "X.X         ", "X..X        ",
     "X...X       ", "X....X      ", "X.....X     ", "X......X    ",
     "X.......X   ", "X........X  ", "X.....XXXXX ", "X..X..X     ",
     "X.X X..X    ", "XX  X..X    ", "X    X..X   ", "     X..X   ",
     "      X..X  ", "      X..X  ", "       XX   ",
 };
-static void draw_cursor(int mx, int my)
+static const char *cur_h[9] = { /* ↔ 左右リサイズ */
+    "    X      X    ",
+    "   XX      XX   ",
+    "  X.X      X.X  ",
+    " X..XXXXXXXX..X ",
+    "X..............X",
+    " X..XXXXXXXX..X ",
+    "  X.X      X.X  ",
+    "   XX      XX   ",
+    "    X      X    ",
+};
+static const char *cur_v[16] = { /* ↕ 上下リサイズ */
+    "    X    ", "   X.X   ", "  X...X  ", " X.....X ",
+    " XXX.XXX ", "   X.X   ", "   X.X   ", "   X.X   ",
+    "   X.X   ", "   X.X   ", "   X.X   ", " XXX.XXX ",
+    " X.....X ", "  X...X  ", "   X.X   ", "    X    ",
+};
+static const char *cur_d[12] = { /* ⤡ 斜めリサイズ(右下角) */
+    "XXXXX       ", "X...X       ", "X..X        ", "X.X.X       ",
+    "XX X.X      ", "    X.X     ", "     X.X    ", "      X.X XX",
+    "       X.X.X", "        X..X", "       X...X", "       XXXXX",
+};
+static void draw_img(int x, int y, const char **img, int n)
 {
-    for (int r = 0; r < 19; r++)
-        for (int c = 0; cursor_img[r][c]; c++) {
-            char ch = cursor_img[r][c];
-            if (ch == 'X') px(mx + c, my + r, 0x101014);
-            else if (ch == '.') px(mx + c, my + r, 0xFFFFFF);
+    for (int r = 0; r < n; r++)
+        for (int c = 0; img[r][c]; c++) {
+            char ch = img[r][c];
+            if (ch == 'X') px(x + c, y + r, 0x101014);
+            else if (ch == '.') px(x + c, y + r, 0xFFFFFF);
         }
+}
+static void draw_cursor(int mx, int my, int rz_mode)
+{
+    if (rz_mode == RZ_RIGHT)       draw_img(mx - 8, my - 4, cur_h, 9);
+    else if (rz_mode == RZ_BOTTOM) draw_img(mx - 4, my - 8, cur_v, 16);
+    else if (rz_mode == RZ_BOTH)   draw_img(mx - 6, my - 6, cur_d, 12);
+    else                           draw_img(mx, my, cur_arrow, 19);
 }
 
 void kmain(uint32_t magic, uint32_t mbinfo)
@@ -268,6 +298,8 @@ void kmain(uint32_t magic, uint32_t mbinfo)
     int pmx = mouse_x, pmy = mouse_y, pbtn = 0;
     Window *drag = 0;
     int dragox = 0, dragoy = 0;
+    Window *rz_win = 0; /* リサイズ中の窓と、掴んだ端の種類 */
+    int rz_mode = RZ_NONE, rz_ox = 0, rz_oy = 0;
     uint32_t shown_sec = (uint32_t)-1;
 
     for (;;) {
@@ -303,12 +335,21 @@ void kmain(uint32_t magic, uint32_t mbinfo)
         int mx = mouse_x, my = mouse_y, mb = mouse_btn;
         if (mx != pmx || my != pmy) dirty = 1;
         if ((mb & 1) && !(pbtn & 1)) { /* 左ボタンを押した瞬間だけ判定 */
-            Window *tw = wm_taskbar_hit(mx, my);
-            Window *hw = tw ? 0 : wm_hit(mx, my);
+            Window *rw = 0;
+            int m = wm_resize_hit(mx, my, &rw); /* 端バンドが最優先 */
+            Window *tw = m ? 0 : wm_taskbar_hit(mx, my);
+            Window *hw = (m || tw) ? 0 : wm_hit(mx, my);
             kprintf("[mouse] press %d,%d -> %s\n", mx, my,
-                    tw ? "taskbar" : hw ? hw->title : "desktop");
-            if (tw) wm_focus(tw);
-            else if (hw) {
+                    m ? "resize" : tw ? "taskbar" : hw ? hw->title : "desktop");
+            if (m) { /* 端を掴んだ: 窓の右下端と掴んだ点のズレを覚えておく */
+                wm_focus(rw);
+                rz_win = rw;
+                rz_mode = m;
+                rz_ox = rw->x + win_pw(rw) - mx;
+                rz_oy = rw->y + win_ph(rw) - my;
+            } else if (tw) {
+                wm_focus(tw);
+            } else if (hw) {
                 wm_focus(hw);
                 if (wm_in_title(hw, mx, my)) { /* タイトルバー=窓の取っ手 */
                     drag = hw;
@@ -322,9 +363,23 @@ void kmain(uint32_t magic, uint32_t mbinfo)
             if (drag)
                 kprintf("[mouse] dropped '%s' at %d,%d\n", drag->title,
                         drag->x, drag->y);
+            if (rz_win)
+                kprintf("[mouse] resized '%s' to %dx%d\n", rz_win->title,
+                        rz_win->cols, rz_win->rows);
             drag = 0;
+            rz_win = 0;
         }
-        if (drag) {
+        if (rz_win) { /* カーソル位置から目標ピクセル寸法→セル数へ丸める */
+            int cols = rz_win->cols, rows = rz_win->rows;
+            if (rz_mode & RZ_RIGHT)
+                cols = (mx + rz_ox - rz_win->x - BORDER * 2 + CELL_W / 2) /
+                       CELL_W;
+            if (rz_mode & RZ_BOTTOM)
+                rows = (my + rz_oy - rz_win->y - TITLE_H - BORDER +
+                        CELL_H / 2) / CELL_H;
+            win_resize(rz_win, cols, rows);
+            dirty = 1;
+        } else if (drag) {
             drag->x = mx - dragox;
             drag->y = my - dragoy;
             dirty = 1;
@@ -332,8 +387,13 @@ void kmain(uint32_t magic, uint32_t mbinfo)
         pmx = mx; pmy = my; pbtn = mb;
 
         if (dirty) { /* 変わった時だけ 合成→カーソル→一括転写 */
+            int hover = rz_mode; /* リサイズ中はその形のカーソルを維持 */
+            if (!rz_win) {
+                Window *hv = 0;
+                hover = drag ? RZ_NONE : wm_resize_hit(mx, my, &hv);
+            }
             wm_compose();
-            draw_cursor(mx, my);
+            draw_cursor(mx, my, hover);
             gfx_flush();
             dirty = 0;
         }

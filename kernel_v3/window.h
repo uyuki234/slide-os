@@ -9,8 +9,13 @@
 #define WIN_MAX      6
 #define WIN_COLS_MAX 64
 #define WIN_ROWS_MAX 28
+#define WIN_COLS_MIN 12
+#define WIN_ROWS_MIN 3
 
 enum { CELL_W = 8, CELL_H = 16, TITLE_H = 24, BORDER = 2 };
+
+/* リサイズの「つかんだ場所」。右端・下端・右下角(両方) */
+enum { RZ_NONE = 0, RZ_RIGHT = 1, RZ_BOTTOM = 2, RZ_BOTH = 3 };
 
 typedef struct Window {
     int x, y;       /* 画面上の左上(ピクセル、枠込み) */
@@ -39,6 +44,8 @@ int win_ph(Window *w); /* ピクセル高(枠込み) */
 Window *wm_hit(int px, int py);              /* 最前面から探す。なければ0 */
 int wm_in_title(Window *w, int px, int py);  /* タイトルバー内か(ドラッグ開始判定) */
 Window *wm_taskbar_hit(int px, int py);      /* タスクバーのラベルを踏んだか */
+int wm_resize_hit(int px, int py, Window **out); /* 端の8pxバンド。返り値=RZ_* */
+void win_resize(Window *w, int cols, int rows);  /* セル単位。範囲は自動clamp */
 
 void wm_set_status(const char *s); /* タスクバー右端(時計) */
 void wm_compose(void);             /* 壁紙→窓→タスクバーを裏画面に合成 */

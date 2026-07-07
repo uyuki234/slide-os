@@ -37,12 +37,19 @@ void wm_focus(Window *w);
 void wm_focus_next(void);
 void wm_move_focused(int dx, int dy);
 
+/* 表示/非表示: 閉じてもWindowは死なない。zorderから抜けて描かれなくなるだけ。
+ * 中身(cell)はそのまま残るので、タスクバーから復帰すると続きが見える */
+void wm_hide(Window *w);
+void wm_show(Window *w);     /* 非表示なら最前面に復帰、表示中なら前面化 */
+int  wm_visible(Window *w);
+
 int win_pw(Window *w); /* ピクセル幅(枠込み) */
 int win_ph(Window *w); /* ピクセル高(枠込み) */
 
 /* マウス用の当たり判定 */
 Window *wm_hit(int px, int py);              /* 最前面から探す。なければ0 */
 int wm_in_title(Window *w, int px, int py);  /* タイトルバー内か(ドラッグ開始判定) */
+int wm_in_close(Window *w, int px, int py);  /* 赤丸(閉じるボタン)の上か */
 Window *wm_taskbar_hit(int px, int py);      /* タスクバーのラベルを踏んだか */
 int wm_resize_hit(int px, int py, Window **out); /* 端の8pxバンド。返り値=RZ_* */
 void win_resize(Window *w, int cols, int rows);  /* セル単位。範囲は自動clamp */

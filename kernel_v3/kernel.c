@@ -169,14 +169,16 @@ static void home_draw(void)
     w->color = 0x07;
     win_puts(w, "  mouse : click to focus,\n"
                 "  drag title bar to move,\n"
-                "  drag edge/corner to resize");
+                "  drag edge/corner to resize\n"
+                "  red dot : close window\n"
+                "  taskbar : reopen app");
     w->color = 0x0F;
 }
 static void home_on_key(App *a, int k)
 {
     (void)a;
-    if (k == '1') wm_focus(slides_app.win);
-    if (k == '2') wm_focus(term_app.win);
+    if (k == '1') wm_show(slides_app.win); /* 閉じていても呼び出せる */
+    if (k == '2') wm_show(term_app.win);
 }
 
 /* ===== 起動スプラッシュ: リングと再生ボタン(スライドを上映するOSの紋章) ===== */
@@ -288,7 +290,7 @@ void kmain(uint32_t magic, uint32_t mbinfo)
     slides_app.on_key = slides_on_key;
     term_app.win = win_create(420, 380, 46, 14, " terminal ");
     term_app.on_key = term_on_key;
-    home_app.win = win_create(600, 96, 32, 11, " home ");
+    home_app.win = win_create(600, 96, 32, 13, " home ");
     home_app.on_key = home_on_key;
     slides_draw();
     term_prompt();
@@ -319,7 +321,7 @@ void kmain(uint32_t magic, uint32_t mbinfo)
         int c;
         while ((c = kbd_getchar()) != -1) {
             if (c == '\t')           wm_focus_next();
-            else if (c == 0x1B)      wm_focus(home_app.win); /* Esc */
+            else if (c == 0x1B)      wm_show(home_app.win); /* Esc(閉じていても復帰) */
             else if (c == KEY_UP)    wm_move_focused(0, -16);
             else if (c == KEY_DOWN)  wm_move_focused(0, 16);
             else if (c == KEY_LEFT)  wm_move_focused(-16, 0);
@@ -348,13 +350,19 @@ void kmain(uint32_t magic, uint32_t mbinfo)
                 rz_ox = rw->x + win_pw(rw) - mx;
                 rz_oy = rw->y + win_ph(rw) - my;
             } else if (tw) {
-                wm_focus(tw);
+                kprintf("[mouse] show '%s'\n", tw->title);
+                wm_show(tw); /* 閉じていれば復帰、出ていれば前面化 */
             } else if (hw) {
-                wm_focus(hw);
-                if (wm_in_title(hw, mx, my)) { /* タイトルバー=窓の取っ手 */
-                    drag = hw;
-                    dragox = mx - hw->x;
-                    dragoy = my - hw->y;
+                if (wm_in_close(hw, mx, my)) { /* 赤丸=閉じる */
+                    kprintf("[mouse] closed '%s'\n", hw->title);
+                    wm_hide(hw);
+                } else {
+                    wm_focus(hw);
+                    if (wm_in_title(hw, mx, my)) { /* タイトルバー=窓の取っ手 */
+                        drag = hw;
+                        dragox = mx - hw->x;
+                        dragoy = my - hw->y;
+                    }
                 }
             }
             dirty = 1;

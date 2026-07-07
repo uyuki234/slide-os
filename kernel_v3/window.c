@@ -27,8 +27,9 @@ static const uint32_t pal[16] = {
 };
 
 static Window pool[WIN_MAX];
-static Window *zorder[WIN_MAX];
-static int nwin;
+static Window *zorder[WIN_MAX]; /* 表示中の窓だけが並ぶ。末尾=最前面 */
+static int nwin;                /* 作られた窓の数(pool) */
+static int nz;                  /* 表示中の窓の数(zorder) */
 
 static char status[32];                 /* タスクバー右端の文字列 */
 static uint32_t wall[GFX_W * GFX_H];    /* 壁紙キャッシュ(毎回描くと重いので) */
@@ -50,7 +51,8 @@ Window *win_create(int x, int y, int cols, int rows, const char *title)
     win->crow = 0; win->ccol = 0; win->used = 1;
     for (int i = 0; i < WIN_COLS_MAX * WIN_ROWS_MAX; i++)
         win->cell[i] = cell(' ', win->color);
-    zorder[nwin++] = win; /* 新しい窓は最前面に積む */
+    zorder[nz++] = win; /* 新しい窓は最前面に積む */
+    nwin++;
     return win;
 }
 
@@ -90,25 +92,52 @@ void win_clear(Window *w)
     w->crow = 0; w->ccol = 0;
 }
 
-/* --- フォーカス管理(v2そのまま) --- */
-Window *wm_focused(void) { return nwin ? zorder[nwin - 1] : 0; }
+/* --- フォーカス管理(v2そのまま。対象は「表示中の窓」だけ) --- */
+Window *wm_focused(void) { return nz ? zorder[nz - 1] : 0; }
 
 void wm_focus_next(void)
 {
-    if (nwin < 2) return;
+    if (nz < 2) return;
     Window *bottom = zorder[0];
-    for (int i = 0; i < nwin - 1; i++) zorder[i] = zorder[i + 1];
-    zorder[nwin - 1] = bottom;
+    for (int i = 0; i < nz - 1; i++) zorder[i] = zorder[i + 1];
+    zorder[nz - 1] = bottom;
 }
 
 void wm_focus(Window *target)
 {
-    for (int i = 0; i < nwin; i++) {
+    for (int i = 0; i < nz; i++) {
         if (zorder[i] != target) continue;
-        for (int j = i; j < nwin - 1; j++) zorder[j] = zorder[j + 1];
-        zorder[nwin - 1] = target;
+        for (int j = i; j < nz - 1; j++) zorder[j] = zorder[j + 1];
+        zorder[nz - 1] = target;
         return;
     }
+}
+
+/* --- 表示/非表示: zorderへの出し入れそのもの --- */
+int wm_visible(Window *target)
+{
+    for (int i = 0; i < nz; i++)
+        if (zorder[i] == target) return 1;
+    return 0;
+}
+
+void wm_hide(Window *target)
+{
+    for (int i = 0; i < nz; i++) {
+        if (zorder[i] != target) continue;
+        for (int j = i; j < nz - 1; j++) zorder[j] = zorder[j + 1];
+        nz--; /* 抜けた後の最前面が自動的に次のフォーカスになる */
+        return;
+    }
+}
+
+void wm_show(Window *target)
+{
+    if (wm_visible(target)) {
+        wm_focus(target); /* もう出ているなら前面に持ち上げるだけ */
+        return;
+    }
+    zorder[nz++] = target; /* 最前面に復帰。中身は消えていないので続きが出る */
 }
 
 void wm_move_focused(int dx, int dy)
@@ -120,7 +149,7 @@ void wm_move_focused(int dx, int dy)
 /* --- マウスの当たり判定 --- */
 Window *wm_hit(int px, int py)
 {
-    for (int i = nwin - 1; i >= 0; i--) { /* 手前の窓から順に調べる */
+    for (int i = nz - 1; i >= 0; i--) { /* 手前の窓から順に調べる */
         Window *w = zorder[i];
         if (px >= w->x && px < w->x + win_pw(w) && py >= w->y &&
             py < w->y + win_ph(w))
@@ -135,11 +164,18 @@ int wm_in_title(Window *w, int px, int py)
            py < w->y + TITLE_H;
 }
 
+/* 赤丸(x+12, 中央高さ, r=5)の周り14x14を当たり判定に。丸ぴったりは狙いにくい */
+int wm_in_close(Window *w, int px, int py)
+{
+    return px >= w->x + 5 && px <= w->x + 19 && py >= w->y + 5 &&
+           py <= w->y + 19;
+}
+
 /* 端の8pxバンド(+外側6pxのおまけ)に触れたらリサイズ。
  * 手前の窓から調べ、手前の窓の本体に当たったら奥の窓の端は隠れている扱い */
 int wm_resize_hit(int px, int py, Window **out)
 {
-    for (int i = nwin - 1; i >= 0; i--) {
+    for (int i = nz - 1; i >= 0; i--) {
         Window *w = zorder[i];
         int pw = win_pw(w), ph = win_ph(w);
         if (px < w->x || px >= w->x + pw + 6 || py < w->y ||
@@ -227,8 +263,9 @@ static void draw_window(Window *w, int focused)
         fill_vgrad(w->x, w->y, pw, TITLE_H, COL_TITLE_A, COL_TITLE_B);
     else
         fill_vgrad(w->x, w->y, pw, TITLE_H, COL_TITLE_NA, COL_TITLE_NB);
+    /* 左端の赤丸=閉じるボタン(押すと窓が消える)。残り2つは飾り */
     fill_circle(w->x + 12, w->y + TITLE_H / 2, 5,
-                focused ? COL_ACCENT : 0x55555F);
+                focused ? 0xE0443A : 0x8A3A34);
     fill_circle(w->x + 28, w->y + TITLE_H / 2, 5, 0x55555F);
     fill_circle(w->x + 44, w->y + TITLE_H / 2, 5, 0x55555F);
     draw_str(w->x + (pw - slen(w->title) * 8) / 2, w->y + (TITLE_H - 16) / 2,
@@ -271,11 +308,16 @@ static void draw_taskbar(void)
         label_x0[i] = x;
         label_x1[i] = x + 16 + len * 8;
         int foc = (wm_focused() == w);
+        int vis = wm_visible(w);
         if (foc) { /* フォーカス中のラベルは下線+明るく */
             fill_rect(label_x0[i], y0 + TASKBAR_H - 4, label_x1[i] - label_x0[i],
                       3, COL_ACCENT);
-        }
-        draw_str(x + 8, y0 + 9, w->title, foc ? 0xFFFFFF : 0x8F8F98);
+        } else if (vis) { /* 表示中(非フォーカス)は小さな点 */
+            fill_circle((label_x0[i] + label_x1[i]) / 2, y0 + TASKBAR_H - 4, 2,
+                        0x9A9AA2);
+        } /* 閉じている窓は印なし+暗い文字。クリックで復帰できる */
+        draw_str(x + 8, y0 + 9, w->title,
+                 foc ? 0xFFFFFF : vis ? 0x8F8F98 : 0x55555C);
         x = label_x1[i] + 10;
     }
 
@@ -295,7 +337,7 @@ void wm_compose(void)
 {
     if (!wall_ready) wall_init();
     copy32(gfx_back, wall, GFX_W * GFX_H); /* 壁紙はキャッシュから一括転写 */
-    for (int i = 0; i < nwin; i++)
-        draw_window(zorder[i], i == nwin - 1); /* 画家のアルゴリズム(v2と同じ) */
+    for (int i = 0; i < nz; i++)
+        draw_window(zorder[i], i == nz - 1); /* 画家のアルゴリズム(v2と同じ) */
     draw_taskbar();
 }

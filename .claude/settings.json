@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make *)",
+      "Bash(qemu-system-i386 *)",
+      "Bash(nasm *)",
+      "Bash(i686-elf-gcc *)",
+      "Bash(i686-elf-grub-mkrescue *)",
+      "Bash(python3 tools/extract_font.py)",
+      "Bash(python3 tools/extract_font.py *)"
+    ]
+  }
+}

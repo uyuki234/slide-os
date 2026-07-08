@@ -59,9 +59,11 @@ static const Slide slides[] = {
      {"Writing to memory 0xB8000 = drawing on screen.",
       "This slide is literally an array assignment.", 0}},
     {"4. What I learned",
-     {"- there is a world before main()",
-      "- an OS is not a given",
-      "- AI as a tutor, not a ghostwriter", 0}},
+     {"- a lot happens before main()",
+      "- nothing exists unless I build it:",
+      "    no printf, no malloc, no fonts",
+      "- building a piece of an OS taught me",
+      "    a piece of how real ones work", 0}},
 };
 enum { NUM_SLIDES = sizeof(slides) / sizeof(slides[0]) };
 

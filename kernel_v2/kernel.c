@@ -59,18 +59,19 @@ static App *focused_app(void) {       /* 最前面の窓の持ち主を探す */
 /* ===== アプリ1: Slides(v1の魂の復活) ===== */
 typedef struct { const char *title; const char *lines[10]; } Slide;
 static const Slide slides[] = {
-    { "slide-os v2", { "An OS whose job is showing slides.",
-        "", "N / P : turn pages", 0 } },
-    { "1. v1 in one day", { "boot -> VGA text -> polling keys",
-        "Every line hand-typed and explained.", 0 } },
-    { "2. v2 in one day", { "interrupts, timer, kbd driver,",
-        "kprintf, windows, this launcher.",
-        "AI wrote more. I chased the why.", 0 } },
-    { "3. before main()", { "power -> BIOS -> loader -> _start",
-        "-> kmain -> (no exit: nowhere to go)", 0 } },
-    { "4. what I learned", { "- an OS is not a given",
-        "- interrupts let the CPU sleep",
-        "- windows are just an array, redrawn", 0 } },
+    { "slide-os", { "An OS whose only job is showing slides.",
+        "", "N: next   P: prev", 0 } },
+    { "1. printf needs an OS", { "printf(\"Hello\") works because an OS exists.",
+        "Here, there is no OS. No libc. No main().", 0 } },
+    { "2. What runs before main()?", { "power on -> BIOS -> loader -> _start -> kmain()",
+        "I wrote _start myself: set up the stack, call C.", 0 } },
+    { "3. How text appears", { "Writing to memory 0xB8000 = drawing on screen.",
+        "This slide is literally an array assignment.", 0 } },
+    { "4. What I learned", { "- a lot happens before main()",
+        "- nothing exists unless I build it:",
+        "    no printf, no malloc, no fonts",
+        "- building a piece of an OS taught me",
+        "    a piece of how real ones work", 0 } },
 };
 enum { NSLIDES = sizeof(slides)/sizeof(slides[0]) };
 static int sidx;
@@ -167,7 +168,7 @@ void kmain(void) {
     timer_init(100);
     keyboard_init();
 
-    slides_app.win = win_create(2, 2, 52, 16, " slides ");
+    slides_app.win = win_create(2, 2, 54, 16, " slides ");
     slides_app.on_key = slides_on_key;
     term_app.win = win_create(32, 8, 44, 14, " terminal ");
     term_app.on_key = term_on_key;
